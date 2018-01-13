@@ -48,9 +48,56 @@ table {
 
 
 html {
-  font-familly: 'Courier New', serif;
+font-family: 'Oxygen', sans-serif;
+  color: #FFF;
 }
 
 body {
-  background: #000;
+  background: #333;
+}
+
+main {
+  width: 1200px;
+  margin: 0 auto;
+  position: relative;
+}
+
+.title {
+  letter-spacing: -0.4rem;
+  font-size: 100px;
+  text-align: right;
+}
+
+.info div {
+  margin: 5px 0;
+}
+
+.profile-items {
+  margin: 60px 0 0 0;
+}
+
+a {
+  color: #0099CC; 
+}
+
+.profile-items h2 {
+  font-size: 190%;
+  margin: 10px 0px;
+}
+
+.profile-item {
+  padding: 5px;
+  font-size: 100%;
+}
+
+.picture {
+  text-align: center;
+  border-radius: 100px;
+  overflow: hidden;
+  width: 200px;
+  height: 200px;
+}
+
+.picture img {
+  line-height: 400px;
 }
