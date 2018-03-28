@@ -49,32 +49,84 @@ table {
 
 html {
 font-family: 'Oxygen', sans-serif;
-  color: #FFF;
+color: #FFF;
 }
 
 body {
-  background: #333;
+  background: #000;
+}
+
+html,body {
+  height: 100%;
 }
 
 main {
-  width: 500px;
   margin: 0 auto;
   position: relative;
+  display: table;
+  height: 100%;
+  animation: fade-in 2s ease 0s 1 alternate;
+}
+
+@keyframes fade-in {
+  0% {
+    opacity: 0;
+  }
+  100% {
+    opacity: 1;
+  }
+}
+
+.title-and-content {
+  display: table-cell;
+  vertical-align: middle;
+}
+
+.title-wrapper {
+  display: flex;
+  align-items: center;
 }
 
 .title {
+  width: 100%;
   letter-spacing: -0.4rem;
   font-size: 100px;
-  text-align: right;
+  text-align: center;
   margin-bottom: 60px;
+}
+
+.info {
+  font-size: 20px;
+  letter-spacing: initial;
+}
+
+.first-name {
+  display: inline-block;
+  padding-right: 0.5em;
 }
 
 .info div {
   margin: 5px 0;
 }
 
+.content-wrapper {
+  justify-content: center;
+  display: flex;
+}
+
 .profile-items {
-  margin: 60px 0 0 0;
+  width: 250px;
+  border: 2px solid #00CCFF;
+  border-radius: 4px;
+  padding: 10px;
+}
+
+.profile-items:first-child {
+  margin-right: 20px;
+}
+
+.activity {
+  border-color: #FFCC00 !important;
 }
 
 a {
