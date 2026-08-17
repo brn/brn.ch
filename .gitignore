@@ -1,0 +1,3 @@
+# Source scans. Only the sampled point clouds in assets/*.pcld are served.
+*.glb
+.DS_Store
