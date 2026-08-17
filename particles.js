@@ -12,6 +12,10 @@
 (function () {
   'use strict';
 
+  // The default is the sculpture cycle. A page can override it with
+  //   <canvas id="bg" data-image="assets/whoami.png" data-yaw="0" data-sway="0.16">
+  // to draw a flat source instead - the shading and the shed direction change
+  // with it, everything else is shared.
   var MODELS = [
     'assets/annibal.pcld',
     'assets/diane.pcld',
@@ -29,14 +33,21 @@
   var YAW_CENTRE = Math.PI + 0.30;
   var YAW_SWING = 0.38;         // how far either side of that it sways
   var EXPOSURE = 1.15;          // additive exposure for the busts
+  var MOSAIC_CELL = 16;         // px in the source image; must match the asset
+  var MOSAIC_STRENGTH = 0.7;    // how far the face's tone goes towards flat
   var SHED_FRACTION = 0.20;     // share of points caught up in the shedding
   var SHED_DIST = 0.62;         // how far a shed point drifts before it is gone
   var FOG_RADIUS = 3.4;         // fog cylinder radius, camera sits inside it
-  var STRIDE = 8;               // per point: x, y, z, wander, nx, ny, nz, phase
+  var STRIDE = 12;              // per point: x,y,z,wander | nx,ny,nz,phase | tone,size,-,-
   var REDUCED = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
   var canvas = document.getElementById('bg');
   if (!canvas) return;
+
+  // A flat source wants to stay close to face-on; a bust wants a three-quarter
+  // turn. Both are just numbers, so the page picks.
+  if (canvas.dataset.yaw !== undefined) YAW_CENTRE = parseFloat(canvas.dataset.yaw);
+  if (canvas.dataset.sway !== undefined) YAW_SWING = parseFloat(canvas.dataset.sway);
 
   var gl = canvas.getContext('webgl', {
     alpha: false,
@@ -52,9 +63,11 @@
   var VERT = [
     'precision highp float;',
     'attribute vec4 a_pos;',   // position being left, plus its wander radius
-    'attribute vec4 a_nrm;',   // surface normal, plus the drift phase
+    'attribute vec4 a_nrm;',   // surface normal (or shed direction), plus phase
+    'attribute vec4 a_ext;',   // unlit brightness, size seed
     'attribute vec4 b_pos;',   // position being entered
     'attribute vec4 b_nrm;',
+    'attribute vec4 b_ext;',
     'uniform mat4 u_mvp;',
     'uniform mat3 u_normal;',  // the model rotation, for turning the normals
     'uniform vec3 u_light;',
@@ -66,6 +79,7 @@
     'uniform float u_far;',
     'uniform float u_drift;',
     'uniform float u_twinkle;', // 0 for the busts, 1 for the fog
+    'uniform float u_unlit;',   // 1 where brightness is carried, not computed
     'varying float v_bright;',
     'varying float v_alpha;',
     'void main() {',
@@ -104,7 +118,7 @@
     '',
     '  gl_Position = u_mvp * vec4(p, 1.0);',
     '  float depth = max(gl_Position.w, 0.001);',
-    '  float size = 0.6 + 0.9 * fract(sin(ph * 91.7) * 4371.3);',
+    '  float size = mix(a_ext.y, b_ext.y, u_mix);',
     '  gl_PointSize = clamp(u_sizeK * PARTICLE_RADIUS * size / depth, 0.8, 8.0);',
     '',
     // Lighting, against the normal as the bust turns. The rim term picks out
@@ -117,7 +131,9 @@
     '  float lit = (0.04 + 1.00 * lam * lam + 0.22 * rim) * facing;',
     '',
     '  float tw = mix(1.0, 0.45 + 0.55 * (0.5 + 0.5 * sin(u_time * 0.35 + ph * 2.1)), u_twinkle);',
-    '  v_bright = mix(lit, a_nrm.x, u_twinkle) * tw * shedFade;',
+    // A flat source - a photograph - has no surface to light, so it carries its
+    // own tone instead. So does the fog.
+    '  v_bright = mix(lit, mix(a_ext.x, b_ext.x, u_mix), u_unlit) * tw * shedFade;',
     '  float f = clamp((u_far - depth) / (u_far - u_near), 0.0, 1.0);',
     // The fog also fades as it comes at the camera, so a mote passing close by
     // dissolves rather than flaring into a white blob.
@@ -146,6 +162,7 @@
     gl.shaderSource(s, src);
     gl.compileShader(s);
     if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) {
+      console.error('shader:', gl.getShaderInfoLog(s));
       gl.deleteShader(s);
       return null;
     }
@@ -160,14 +177,16 @@
   gl.attachShader(prog, vs);
   gl.attachShader(prog, fs);
   gl.linkProgram(prog);
-  if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) return;
+  if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) { console.error('link:', gl.getProgramInfoLog(prog)); return; }
   gl.useProgram(prog);
 
   var loc = {
     aPos: gl.getAttribLocation(prog, 'a_pos'),
     aNrm: gl.getAttribLocation(prog, 'a_nrm'),
     bPos: gl.getAttribLocation(prog, 'b_pos'),
+    aExt: gl.getAttribLocation(prog, 'a_ext'),
     bNrm: gl.getAttribLocation(prog, 'b_nrm'),
+    bExt: gl.getAttribLocation(prog, 'b_ext'),
     mvp: gl.getUniformLocation(prog, 'u_mvp'),
     normal: gl.getUniformLocation(prog, 'u_normal'),
     light: gl.getUniformLocation(prog, 'u_light'),
@@ -179,6 +198,7 @@
     far: gl.getUniformLocation(prog, 'u_far'),
     drift: gl.getUniformLocation(prog, 'u_drift'),
     twinkle: gl.getUniformLocation(prog, 'u_twinkle'),
+    unlit: gl.getUniformLocation(prog, 'u_unlit'),
     exposure: gl.getUniformLocation(prog, 'u_exposure')
   };
 
@@ -270,6 +290,8 @@
       data[k + 5] = nrm[s + 1] / 127;
       data[k + 6] = nrm[s + 2] / 127;
       data[k + 7] = Math.random() * 6.283;
+      data[k + 8] = 0;                                  // lit from the normal
+      data[k + 9] = 0.6 + Math.random() * 0.9;          // size seed
       if (x < loX) loX = x; if (x > hiX) hiX = x;
       if (y < loY) loY = y; if (y > hiY) hiY = y;
       if (z < loZ) loZ = z; if (z > hiZ) hiZ = z;
@@ -290,7 +312,7 @@
 
     // The widest silhouette a bust can turn into is its diagonal, so the fit
     // has to allow for depth as well as width.
-    return { data: data, count: n, modelW: width * 2 };
+    return { data: data, count: n, modelW: width * 2, unlit: 0, exposure: EXPOSURE };
   }
 
   // The morph pairs points by array index, so both clouds are sorted into the
@@ -332,13 +354,90 @@
       data[k + 1] = (Math.random() - 0.5) * 3.2;
       data[k + 2] = Math.sin(ang) * rad;
       data[k + 3] = 0.02 + Math.random() * 0.05; // nothing to preserve out here
-      // The fog is unlit; the shader reads its brightness straight out of .x.
-      data[k + 4] = 0.06 + Math.pow(Math.random(), 2.2) * 0.70;
+      data[k + 4] = 0;
       data[k + 5] = 0;
-      data[k + 6] = 1;
+      data[k + 6] = 1;                                  // unused: the fog is unlit
       data[k + 7] = Math.random() * 6.283;
+      data[k + 8] = 0.06 + Math.pow(Math.random(), 2.2) * 0.70;
+      data[k + 9] = 0.45 + Math.random() * 1.35;
     }
     return { data: data, count: count };
+  }
+
+  // A flat source. The tone drives the density so the picture is legible, and
+  // is carried through as the point's own brightness because there is no surface
+  // to light. The alpha channel is the cut-out: the sitter, not the wall behind.
+  //
+  // The shed direction points out of the picture plane rather than along a
+  // surface normal, so the sheet tears outward from its centre instead of
+  // peeling forward - a flat collapse rather than a solid one.
+  function buildImage(img, count) {
+    var w = img.naturalWidth, h = img.naturalHeight;
+    var c = document.createElement('canvas');
+    c.width = w;
+    c.height = h;
+    var ctx = c.getContext('2d');
+    ctx.drawImage(img, 0, 0);
+
+    var px;
+    try {
+      px = ctx.getImageData(0, 0, w, h).data;
+    } catch (e) {
+      return null; // tainted canvas (e.g. opened over file://)
+    }
+
+    var data = new Float32Array(count * STRIDE);
+    var modelW = w / h;
+    var placed = 0, guard = 0;
+
+    while (placed < count && guard < count * 200) {
+      guard++;
+      var u = Math.random(), v = Math.random();
+      var o = (((v * h) | 0) * w + ((u * w) | 0)) * 4;
+      var mask = px[o + 3] / 255;
+      if (mask < 0.5) continue;
+
+      var tone = px[o] / 255;
+
+      // The face goes towards a mosaic. The asset carries a per-cell average of
+      // the tone in blue and how much of a face each pixel is in green, so all
+      // that is left here is to blend towards the flat value and to punch a
+      // gutter between the cells - without the gutter a scatter of points
+      // sharing one tone has no edges, and reads as a smudge, not a grid.
+      // The grid comes from the gutter, which is geometry, so it stays crisp at
+      // full face weight while the tone only goes part of the way flat - that
+      // leaves the eye sockets and the shadow under the nose just about there.
+      var faceW = px[o + 1] / 255;
+      if (faceW > 0.02) {
+        tone += (px[o + 2] / 255 - tone) * faceW * MOSAIC_STRENGTH;
+        var fu = (u * w / MOSAIC_CELL) % 1;
+        var fv = (v * h / MOSAIC_CELL) % 1;
+        var edge = Math.min(Math.min(fu, 1 - fu), Math.min(fv, 1 - fv));
+        if (edge < 0.16 * faceW) continue;
+      }
+
+      // Weighted well towards the lit areas: at this sparsity a flat floor
+      // spends points on the dark shirt that the face needs.
+      if (Math.random() > (0.06 + 0.94 * Math.pow(tone, 1.25)) * mask) continue;
+
+      var x = (u - 0.5) * modelW, y = 0.5 - v;
+      var len = Math.sqrt(x * x + y * y) || 1;
+
+      var k = placed * STRIDE;
+      data[k] = x;
+      data[k + 1] = y;
+      data[k + 2] = (Math.random() - 0.5) * 0.012;   // a sheet, with a little body
+      data[k + 3] = 0.0016 + Math.random() * 0.0030;
+      data[k + 4] = x / len;                          // outward, within the plane
+      data[k + 5] = y / len;
+      data[k + 6] = 0.30;
+      data[k + 7] = Math.random() * 6.283;
+      data[k + 8] = tone;
+      data[k + 9] = 0.6 + Math.random() * 0.9;
+      placed++;
+    }
+
+    return { data: data, count: placed, modelW: modelW, unlit: 1, exposure: 2.3 };
   }
 
   /* ------------------------------------------------------------------ render */
@@ -366,16 +465,21 @@
 
     gl.enableVertexAttribArray(loc.aPos);
     gl.enableVertexAttribArray(loc.aNrm);
+    gl.enableVertexAttribArray(loc.aExt);
     gl.enableVertexAttribArray(loc.bPos);
     gl.enableVertexAttribArray(loc.bNrm);
+    gl.enableVertexAttribArray(loc.bExt);
 
-    function draw(from, to, count, m, burst, mvp, near, far, exposure, drift, twinkle) {
+    function draw(from, to, count, m, burst, mvp, near, far, exposure, drift,
+        twinkle, unlit) {
       gl.bindBuffer(gl.ARRAY_BUFFER, from);
       gl.vertexAttribPointer(loc.aPos, 4, gl.FLOAT, false, STRIDE * 4, 0);
       gl.vertexAttribPointer(loc.aNrm, 4, gl.FLOAT, false, STRIDE * 4, 16);
+      gl.vertexAttribPointer(loc.aExt, 4, gl.FLOAT, false, STRIDE * 4, 32);
       gl.bindBuffer(gl.ARRAY_BUFFER, to);
       gl.vertexAttribPointer(loc.bPos, 4, gl.FLOAT, false, STRIDE * 4, 0);
       gl.vertexAttribPointer(loc.bNrm, 4, gl.FLOAT, false, STRIDE * 4, 16);
+      gl.vertexAttribPointer(loc.bExt, 4, gl.FLOAT, false, STRIDE * 4, 32);
       gl.uniformMatrix4fv(loc.mvp, false, mvp);
       gl.uniform1f(loc.mix, m);
       gl.uniform1f(loc.burst, burst);
@@ -384,6 +488,7 @@
       gl.uniform1f(loc.exposure, exposure);
       gl.uniform1f(loc.drift, drift);
       gl.uniform1f(loc.twinkle, twinkle);
+      gl.uniform1f(loc.unlit, unlit);
       gl.drawArrays(gl.POINTS, 0, count);
     }
 
@@ -466,6 +571,7 @@
       // Hold on one bust, then cross to the other; wrap round to the first.
       var phase = t % total;
       var index = Math.floor(phase / cycle);
+      var next = (index + 1) % buffers.length;
       var local = phase - index * cycle;
       var m = local <= HOLD ? 0 : (local - HOLD) / MORPH;
       m = m * m * (3 - 2 * m);
@@ -478,12 +584,14 @@
       gl.depthMask(false);
       gl.uniformMatrix3fv(loc.normal, false, dustNrm3);
       draw(dustBuf, dustBuf, dust.count, 0, 0,
-        dustMvp, dist - 2.6, dist + 3.4, 0.48, drift * 3, 1);
+        dustMvp, dist - 2.6, dist + 3.4, 0.48, drift * 3, 1, 1);
 
       gl.depthMask(true);
       gl.uniformMatrix3fv(loc.normal, false, nrm3);
-      draw(buffers[index], buffers[(index + 1) % buffers.length], shared, m, burst,
-        mvp, dist - 0.75, dist + 0.75, EXPOSURE, drift, 0);
+      draw(buffers[index], buffers[next], shared, m, burst,
+        mvp, dist - 0.75, dist + 0.75,
+        clouds[index].exposure + (clouds[next].exposure - clouds[index].exposure) * m,
+        drift, 0, clouds[0].unlit);
     }
 
     requestAnimationFrame(frame);
@@ -492,22 +600,45 @@
 
   /* -------------------------------------------------------------- bootstrap */
 
-  function load(url) {
+  function loadBuffer(url) {
     return fetch(url)
       .then(function (r) { return r.ok ? r.arrayBuffer() : null; })
       .catch(function () { return null; });
   }
 
-  Promise.all(MODELS.map(load)).then(function (buffers) {
-    var count = targetCount();
-    var clouds = [];
-    for (var i = 0; i < buffers.length; i++) {
-      if (!buffers[i]) continue;
-      var cloud = decode(buffers[i], count);
-      if (!cloud || cloud.count === 0) continue;
-      sortSpatially(cloud);
-      clouds.push(cloud);
-    }
+  function loadImage(url) {
+    return new Promise(function (resolve) {
+      var img = new Image();
+      img.decoding = 'async';
+      img.onload = function () { resolve(img); };
+      img.onerror = function () { resolve(null); };
+      img.src = url;
+    });
+  }
+
+  function begin(clouds) {
+    for (var i = 0; i < clouds.length; i++) sortSpatially(clouds[i]);
     if (clouds.length) start(clouds, buildAmbient());
-  });
+  }
+
+  if (canvas.dataset.image) {
+    loadImage(canvas.dataset.image).then(function (img) {
+      if (!img) return;
+      // A face wants to stay sparse. Read as a scatter that happens to describe
+      // a face, not as a photograph rebuilt out of dots.
+      var cloud = buildImage(img, Math.round(targetCount() * 0.42));
+      if (cloud && cloud.count > 0) begin([cloud]);
+    });
+  } else {
+    Promise.all(MODELS.map(loadBuffer)).then(function (buffers) {
+      var count = targetCount();
+      var clouds = [];
+      for (var i = 0; i < buffers.length; i++) {
+        if (!buffers[i]) continue;
+        var cloud = decode(buffers[i], count);
+        if (cloud && cloud.count > 0) clouds.push(cloud);
+      }
+      begin(clouds);
+    });
+  }
 })();

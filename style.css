@@ -158,6 +158,14 @@ body {
   opacity: 1;
 }
 
+/* On a phone there is no room to sit beside the cloud, so the text sits on top
+   of it. Let the cloud recede rather than fight the prose. */
+@media (max-width: 799px) {
+  #bg.is-ready {
+    opacity: 0.45;
+  }
+}
+
 /* Vertically centred, sitting a little left of the middle of the viewport. */
 .contents {
   position: relative;
@@ -188,6 +196,16 @@ body {
 
 .contents .job {
   margin-bottom: 1.6em;
+}
+
+.contents .job .whoami {
+  font-size: 10pt;
+  opacity: 0.6;
+  margin-left: 0.9em;
+}
+
+.contents .job .whoami a {
+  opacity: 1;
 }
 
 .contents .media:first-of-type {
@@ -231,6 +249,8 @@ body {
 /* Plain prose pages, e.g. /credits. Same typography as the front page, no
    canvas behind it. */
 .doc {
+  position: relative;
+  z-index: 1;
   box-sizing: border-box;
   max-width: 46rem;
   min-height: 100vh;
@@ -285,4 +305,20 @@ body {
 .doc a:hover,
 .doc a:focus-visible {
   opacity: 1;
+}
+
+/* A doc page that sits over the particle canvas rather than plain black. Kept
+   to a narrow column on the left so the portrait behind it stays readable. */
+.doc-over {
+  max-width: 36rem;
+  padding-top: 3rem;
+  padding-bottom: 3rem;
+  line-height: 1.8;
+  text-shadow: 0 0 12px #000, 0 0 4px #000;
+}
+
+@media (min-width: 800px) {
+  .doc-over {
+    padding-right: 0;
+  }
 }
