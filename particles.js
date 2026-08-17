@@ -33,8 +33,8 @@
   var YAW_CENTRE = Math.PI + 0.30;
   var YAW_SWING = 0.38;         // how far either side of that it sways
   var EXPOSURE = 1.15;          // additive exposure for the busts
-  var MOSAIC_CELL = 16;         // px in the source image; must match the asset
-  var MOSAIC_STRENGTH = 0.7;    // how far the face's tone goes towards flat
+  var FACE_SOFTEN = 0.9;        // how far the face goes towards its blurred copy
+  var FACE_SCATTER = 0.011;     // and how far its points are thrown off station
   var SHED_FRACTION = 0.20;     // share of points caught up in the shedding
   var SHED_DIST = 0.62;         // how far a shed point drifts before it is gone
   var FOG_RADIUS = 3.4;         // fog cylinder radius, camera sits inside it
@@ -404,30 +404,32 @@
       // that is left here is to blend towards the flat value and to punch a
       // gutter between the cells - without the gutter a scatter of points
       // sharing one tone has no edges, and reads as a smudge, not a grid.
-      // The grid comes from the gutter, which is geometry, so it stays crisp at
-      // full face weight while the tone only goes part of the way flat - that
-      // leaves the eye sockets and the shadow under the nose just about there.
+      // The face is softened. Tone comes from the blurred copy in the asset, but
+      // that alone is not enough: sharply placed points over a blurred tone
+      // still read as sharp, because the eye takes the focus from the dots, not
+      // from the values. So the points are thrown off station by about the blur
+      // radius as well.
       var faceW = px[o + 1] / 255;
-      if (faceW > 0.02) {
-        tone += (px[o + 2] / 255 - tone) * faceW * MOSAIC_STRENGTH;
-        var fu = (u * w / MOSAIC_CELL) % 1;
-        var fv = (v * h / MOSAIC_CELL) % 1;
-        var edge = Math.min(Math.min(fu, 1 - fu), Math.min(fv, 1 - fv));
-        if (edge < 0.16 * faceW) continue;
-      }
+      var soft = faceW * FACE_SOFTEN;
+      if (soft > 0.02) tone += (px[o + 2] / 255 - tone) * soft;
 
       // Weighted well towards the lit areas: at this sparsity a flat floor
       // spends points on the dark shirt that the face needs.
       if (Math.random() > (0.06 + 0.94 * Math.pow(tone, 1.25)) * mask) continue;
 
       var x = (u - 0.5) * modelW, y = 0.5 - v;
+      if (soft > 0.02) {
+        var sr = FACE_SCATTER * soft;
+        x += (Math.random() + Math.random() + Math.random() - 1.5) * sr;
+        y += (Math.random() + Math.random() + Math.random() - 1.5) * sr;
+      }
       var len = Math.sqrt(x * x + y * y) || 1;
 
       var k = placed * STRIDE;
       data[k] = x;
       data[k + 1] = y;
       data[k + 2] = (Math.random() - 0.5) * 0.012;   // a sheet, with a little body
-      data[k + 3] = 0.0016 + Math.random() * 0.0030;
+      data[k + 3] = 0.0016 + Math.random() * 0.0030 + soft * 0.0035;
       data[k + 4] = x / len;                          // outward, within the plane
       data[k + 5] = y / len;
       data[k + 6] = 0.30;

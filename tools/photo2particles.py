@@ -6,8 +6,8 @@
 Channels, all of which the sampler reads:
 
     R  tone, contrast-stretched over the sitter only
-    G  how much of a face this pixel is, which is where the mosaic applies
-    B  tone averaged per mosaic cell
+    G  how much of a face this pixel is, which is where the softening applies
+    B  the same tone, heavily blurred
     A  the cut-out: the sitter, not the wall behind him
 
 The mask is the part that matters. The wall is brighter than the sitter, so
@@ -15,7 +15,8 @@ sampling on tone alone lights the wall and loses the man. It is found by
 flooding the bright region in from the border, so highlights *inside* the face
 stay part of the subject instead of being punched out as holes.
 
-MOSAIC_CELL must stay in step with the constant of the same name in particles.js.
+particles.js blends R towards B by G, and scatters the points there to match:
+a blurred tone under sharply placed points still reads as sharp.
 """
 import sys
 from collections import deque
@@ -24,12 +25,14 @@ import numpy as np
 from PIL import Image
 
 WIDTH, HEIGHT = 340, 476
-MOSAIC_CELL = 16
+FACE_BLUR = 60       # blur passes over the face; sigma is about sqrt(0.8 * this)
 WALL = 0.90          # a pixel this bright, reachable from the border, is wall
-# Only the head is wanted. The silhouette holds a steady width down to the chin
-# and then flares where the shoulders start, so the mask is faded out across
-# that band: the jaw stays, the neck dissolves, the shirt goes.
-HEAD_FADE = (0.60, 0.74)
+# Wherever the sitter runs off the edge of the photograph he ends on a straight
+# cut, which reads as a torn-out rectangle rather than a figure. Fade the mask
+# towards the borders so those edges dissolve instead. Generous at the bottom,
+# where the shoulders leave the frame; barely anything at the top, which the
+# head does not reach.
+EDGE_FADE = {'x': 0.14, 'top': 0.05, 'bottom': 0.26}
 
 
 def blur(m, passes):
@@ -66,11 +69,17 @@ def subject_mask(lum):
 
     mask = (~wall).astype(np.float32)
 
-    v = (np.arange(h, dtype=np.float32) + 0.5) / h
-    t = np.clip((v - HEAD_FADE[0]) / (HEAD_FADE[1] - HEAD_FADE[0]), 0, 1)
-    mask *= (1 - t * t * (3 - 2 * t))[:, None]
+    def ramp(d):
+        t = np.clip(d, 0, 1)
+        return t * t * (3 - 2 * t)
 
-    return blur(mask, 3)
+    u = (np.arange(w, dtype=np.float32) + 0.5) / w
+    v = (np.arange(h, dtype=np.float32) + 0.5) / h
+    mask *= ramp(np.minimum(u, 1 - u) / EDGE_FADE['x'])[None, :]
+    mask *= ramp(v / EDGE_FADE['top'])[:, None]
+    mask *= ramp((1 - v) / EDGE_FADE['bottom'])[:, None]
+
+    return blur(mask, 5)
 
 
 def face_weight(rgb, mask):
@@ -79,16 +88,6 @@ def face_weight(rgb, mask):
     skin = ((r > 95) & (g > 40) & (b > 20) & (span > 15)
             & (np.abs(r - g) > 15) & (r > g) & (r > b)).astype(np.float32)
     return np.clip(blur(skin, 14) * 2.2, 0, 1) * mask
-
-
-def cell_average(tone):
-    out = tone.copy()
-    h, w = tone.shape
-    for y in range(0, h, MOSAIC_CELL):
-        for x in range(0, w, MOSAIC_CELL):
-            out[y:y + MOSAIC_CELL, x:x + MOSAIC_CELL] = \
-                tone[y:y + MOSAIC_CELL, x:x + MOSAIC_CELL].mean()
-    return out
 
 
 def main(src, dst, mosaic):
@@ -105,7 +104,7 @@ def main(src, dst, mosaic):
     out = np.zeros((HEIGHT, WIDTH, 4), np.uint8)
     out[:, :, 0] = (tone * 255).astype(np.uint8)
     out[:, :, 1] = (face * 255).astype(np.uint8)
-    out[:, :, 2] = (cell_average(tone) * 255).astype(np.uint8)
+    out[:, :, 2] = (blur(tone, FACE_BLUR) * 255).astype(np.uint8)
     out[:, :, 3] = (mask * 255).astype(np.uint8)
     Image.fromarray(out, 'RGBA').save(dst, optimize=True)
 
