@@ -622,12 +622,21 @@
   }
 
   if (canvas.dataset.image) {
-    loadImage(canvas.dataset.image).then(function (img) {
-      if (!img) return;
+    // Several sources morph into each other. They are the same photograph with
+    // the face swapped out, shot from the same place, so sorting both the same
+    // way leaves the hair and shoulders standing still and turns the face over.
+    var sources = canvas.dataset.image.split(',');
+    Promise.all(sources.map(loadImage)).then(function (images) {
       // A face wants to stay sparse. Read as a scatter that happens to describe
       // a face, not as a photograph rebuilt out of dots.
-      var cloud = buildImage(img, Math.round(targetCount() * 0.42));
-      if (cloud && cloud.count > 0) begin([cloud]);
+      var count = Math.round(targetCount() * 0.42);
+      var clouds = [];
+      for (var i = 0; i < images.length; i++) {
+        if (!images[i]) continue;
+        var cloud = buildImage(images[i], count);
+        if (cloud && cloud.count > 0) clouds.push(cloud);
+      }
+      begin(clouds);
     });
   } else {
     Promise.all(MODELS.map(loadBuffer)).then(function (buffers) {
