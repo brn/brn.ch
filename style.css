@@ -141,7 +141,7 @@ body {
   color: #fff;
 }
 
-/* Particle Mona Lisa. Sits behind everything; fades in once WebGL is running. */
+/* The sculpture point cloud. Sits behind everything; fades in once WebGL runs. */
 #bg {
   position: fixed;
   inset: 0;
@@ -208,10 +208,81 @@ body {
   opacity: 1;
 }
 
+/* Attribution for the scans the background is built from. Set apart from the
+   personal links, and quiet enough not to compete with them. */
+.contents .credits {
+  margin-top: 1.9em;
+  font-size: 10pt;
+  opacity: 0.6;
+}
+
+.contents .credits a {
+  opacity: 1;
+}
+
 .style {
   position: fixed;
   bottom: 10px;
   text-align: center;
   width: 100%;
   font-size: 20px;
+}
+
+/* Plain prose pages, e.g. /credits. Same typography as the front page, no
+   canvas behind it. */
+.doc {
+  box-sizing: border-box;
+  max-width: 46rem;
+  min-height: 100vh;
+  padding: 4rem clamp(1.25rem, 6vw, 4rem);
+  font-size: clamp(0.95rem, 1.15vw, 1.1rem);
+  line-height: 1.9;
+}
+
+@media (min-width: 800px) {
+  .doc {
+    padding-left: clamp(4rem, 12vw, 10rem);
+  }
+}
+
+.doc h1 {
+  font-size: clamp(1.5rem, 2.8vw, 2.2rem);
+  line-height: 1.3;
+  margin-bottom: 1.4em;
+}
+
+.doc p {
+  margin-bottom: 1.4em;
+}
+
+.doc .works {
+  margin-bottom: 1.8em;
+}
+
+.doc .works li {
+  margin-bottom: 0.9em;
+}
+
+.doc .works .by {
+  display: block;
+  font-size: 10pt;
+  opacity: 0.6;
+}
+
+.doc .note {
+  opacity: 0.7;
+}
+
+.doc a {
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
+  text-decoration-thickness: 1px;
+  opacity: 0.85;
+  transition: opacity 0.2s ease;
+}
+
+.doc a:hover,
+.doc a:focus-visible {
+  opacity: 1;
 }
