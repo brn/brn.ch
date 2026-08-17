@@ -12,10 +12,10 @@
 (function () {
   'use strict';
 
-  // The default is the sculpture cycle. A page can override it with
-  //   <canvas id="bg" data-image="assets/whoami.png" data-yaw="0" data-sway="0.16">
-  // to draw a flat source instead - the shading and the shed direction change
-  // with it, everything else is shared.
+  // The default is the sculpture cycle. A page can override the list, and the
+  // framing, from the canvas itself:
+  //   <canvas id="bg" data-models="../assets/whoami.pcld" data-yaw="0.15">
+  // A single entry simply holds still - there is nothing to morph into.
   var MODELS = [
     'assets/annibal.pcld',
     'assets/diane.pcld',
@@ -33,8 +33,6 @@
   var YAW_CENTRE = Math.PI + 0.30;
   var YAW_SWING = 0.38;         // how far either side of that it sways
   var EXPOSURE = 1.15;          // additive exposure for the busts
-  var FACE_SOFTEN = 0.9;        // how far the face goes towards its blurred copy
-  var FACE_SCATTER = 0.011;     // and how far its points are thrown off station
   var SHED_FRACTION = 0.20;     // share of points caught up in the shedding
   var SHED_DIST = 0.62;         // how far a shed point drifts before it is gone
   var FOG_RADIUS = 3.4;         // fog cylinder radius, camera sits inside it
@@ -46,6 +44,8 @@
 
   // A flat source wants to stay close to face-on; a bust wants a three-quarter
   // turn. Both are just numbers, so the page picks.
+  if (canvas.dataset.models) MODELS = canvas.dataset.models.split(',');
+  if (canvas.dataset.exposure !== undefined) EXPOSURE = parseFloat(canvas.dataset.exposure);
   if (canvas.dataset.yaw !== undefined) YAW_CENTRE = parseFloat(canvas.dataset.yaw);
   if (canvas.dataset.sway !== undefined) YAW_SWING = parseFloat(canvas.dataset.sway);
 
@@ -364,84 +364,6 @@
     return { data: data, count: count };
   }
 
-  // A flat source. The tone drives the density so the picture is legible, and
-  // is carried through as the point's own brightness because there is no surface
-  // to light. The alpha channel is the cut-out: the sitter, not the wall behind.
-  //
-  // The shed direction points out of the picture plane rather than along a
-  // surface normal, so the sheet tears outward from its centre instead of
-  // peeling forward - a flat collapse rather than a solid one.
-  function buildImage(img, count) {
-    var w = img.naturalWidth, h = img.naturalHeight;
-    var c = document.createElement('canvas');
-    c.width = w;
-    c.height = h;
-    var ctx = c.getContext('2d');
-    ctx.drawImage(img, 0, 0);
-
-    var px;
-    try {
-      px = ctx.getImageData(0, 0, w, h).data;
-    } catch (e) {
-      return null; // tainted canvas (e.g. opened over file://)
-    }
-
-    var data = new Float32Array(count * STRIDE);
-    var modelW = w / h;
-    var placed = 0, guard = 0;
-
-    while (placed < count && guard < count * 200) {
-      guard++;
-      var u = Math.random(), v = Math.random();
-      var o = (((v * h) | 0) * w + ((u * w) | 0)) * 4;
-      var mask = px[o + 3] / 255;
-      if (mask < 0.5) continue;
-
-      var tone = px[o] / 255;
-
-      // The face goes towards a mosaic. The asset carries a per-cell average of
-      // the tone in blue and how much of a face each pixel is in green, so all
-      // that is left here is to blend towards the flat value and to punch a
-      // gutter between the cells - without the gutter a scatter of points
-      // sharing one tone has no edges, and reads as a smudge, not a grid.
-      // The face is softened. Tone comes from the blurred copy in the asset, but
-      // that alone is not enough: sharply placed points over a blurred tone
-      // still read as sharp, because the eye takes the focus from the dots, not
-      // from the values. So the points are thrown off station by about the blur
-      // radius as well.
-      var faceW = px[o + 1] / 255;
-      var soft = faceW * FACE_SOFTEN;
-      if (soft > 0.02) tone += (px[o + 2] / 255 - tone) * soft;
-
-      // Weighted well towards the lit areas: at this sparsity a flat floor
-      // spends points on the dark shirt that the face needs.
-      if (Math.random() > (0.06 + 0.94 * Math.pow(tone, 1.25)) * mask) continue;
-
-      var x = (u - 0.5) * modelW, y = 0.5 - v;
-      if (soft > 0.02) {
-        var sr = FACE_SCATTER * soft;
-        x += (Math.random() + Math.random() + Math.random() - 1.5) * sr;
-        y += (Math.random() + Math.random() + Math.random() - 1.5) * sr;
-      }
-      var len = Math.sqrt(x * x + y * y) || 1;
-
-      var k = placed * STRIDE;
-      data[k] = x;
-      data[k + 1] = y;
-      data[k + 2] = (Math.random() - 0.5) * 0.012;   // a sheet, with a little body
-      data[k + 3] = 0.0016 + Math.random() * 0.0030 + soft * 0.0035;
-      data[k + 4] = x / len;                          // outward, within the plane
-      data[k + 5] = y / len;
-      data[k + 6] = 0.30;
-      data[k + 7] = Math.random() * 6.283;
-      data[k + 8] = tone;
-      data[k + 9] = 0.6 + Math.random() * 0.9;
-      placed++;
-    }
-
-    return { data: data, count: placed, modelW: modelW, unlit: 1, exposure: 2.3 };
-  }
-
   /* ------------------------------------------------------------------ render */
 
   function start(clouds, dust) {
@@ -575,9 +497,12 @@
       var index = Math.floor(phase / cycle);
       var next = (index + 1) % buffers.length;
       var local = phase - index * cycle;
-      var m = local <= HOLD ? 0 : (local - HOLD) / MORPH;
-      m = m * m * (3 - 2 * m);
-      var burst = Math.sin(Math.PI * m) * 0.055;
+      var m = 0, burst = 0;
+      if (buffers.length > 1 && local > HOLD) {
+        m = (local - HOLD) / MORPH;
+        m = m * m * (3 - 2 * m);
+        burst = Math.sin(Math.PI * m) * 0.055;
+      }
 
       var drift = REDUCED ? 0.25 : 1;
       gl.uniform1f(loc.time, t);
@@ -608,48 +533,17 @@
       .catch(function () { return null; });
   }
 
-  function loadImage(url) {
-    return new Promise(function (resolve) {
-      var img = new Image();
-      img.decoding = 'async';
-      img.onload = function () { resolve(img); };
-      img.onerror = function () { resolve(null); };
-      img.src = url;
-    });
-  }
-
-  function begin(clouds) {
-    for (var i = 0; i < clouds.length; i++) sortSpatially(clouds[i]);
+  Promise.all(MODELS.map(loadBuffer)).then(function (buffers) {
+    var count = targetCount();
+    var clouds = [];
+    for (var i = 0; i < buffers.length; i++) {
+      if (!buffers[i]) continue;
+      var cloud = decode(buffers[i], count);
+      if (!cloud || cloud.count === 0) continue;
+      sortSpatially(cloud);
+      clouds.push(cloud);
+    }
     if (clouds.length) start(clouds, buildAmbient());
-  }
+  });
 
-  if (canvas.dataset.image) {
-    // Several sources morph into each other. They are the same photograph with
-    // the face swapped out, shot from the same place, so sorting both the same
-    // way leaves the hair and shoulders standing still and turns the face over.
-    var sources = canvas.dataset.image.split(',');
-    Promise.all(sources.map(loadImage)).then(function (images) {
-      // A face wants to stay sparse. Read as a scatter that happens to describe
-      // a face, not as a photograph rebuilt out of dots.
-      var count = Math.round(targetCount() * 0.42);
-      var clouds = [];
-      for (var i = 0; i < images.length; i++) {
-        if (!images[i]) continue;
-        var cloud = buildImage(images[i], count);
-        if (cloud && cloud.count > 0) clouds.push(cloud);
-      }
-      begin(clouds);
-    });
-  } else {
-    Promise.all(MODELS.map(loadBuffer)).then(function (buffers) {
-      var count = targetCount();
-      var clouds = [];
-      for (var i = 0; i < buffers.length; i++) {
-        if (!buffers[i]) continue;
-        var cloud = decode(buffers[i], count);
-        if (cloud && cloud.count > 0) clouds.push(cloud);
-      }
-      begin(clouds);
-    });
-  }
 })();
