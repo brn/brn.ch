@@ -241,6 +241,7 @@ body {
 .style {
   position: fixed;
   bottom: 10px;
+  z-index: 1;
   text-align: center;
   width: 100%;
   font-size: 20px;
@@ -308,13 +309,11 @@ body {
 }
 
 /* A doc page that sits over the particle canvas rather than plain black. Kept
-   to a narrow column on the left so the portrait behind it stays readable.
-   The prose scrolls here, unlike the front page, so it has to end clear of the
-   fixed copy at the foot rather than run underneath it. */
+   to a narrow column on the left so the portrait behind it stays readable. */
 .doc-over {
   max-width: 36rem;
   padding-top: 3rem;
-  padding-bottom: 8rem;
+  padding-bottom: 1rem;
   line-height: 1.8;
   text-shadow: 0 0 12px #000, 0 0 4px #000;
 }
@@ -325,10 +324,17 @@ body {
   }
 }
 
-/* The copy at the foot wraps to three lines on a narrow screen, so the prose
-   needs correspondingly more room below it. */
-@media (max-width: 799px) {
-  .doc-over {
-    padding-bottom: 11rem;
-  }
+/* A line pinned to the foot of the viewport cannot coexist with a page that
+   scrolls - whatever the height, some scroll position puts prose underneath it,
+   and reserving room below the text only fixes the position at the very end of
+   the scroll. The front page never scrolls, so it keeps its fixed line; here
+   the same line joins the flow and ends the page instead. */
+.style-flow {
+  /* relative, not static: it has to stay in the flow but still sit above the
+     canvas, and z-index does nothing to an unpositioned box. */
+  position: relative;
+  /* width:100% plus padding would overflow the viewport, since nothing here
+     sets box-sizing globally. */
+  box-sizing: border-box;
+  padding: 3rem clamp(1.25rem, 6vw, 4rem) 3rem;
 }
