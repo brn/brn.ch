@@ -308,11 +308,13 @@ body {
 }
 
 /* A doc page that sits over the particle canvas rather than plain black. Kept
-   to a narrow column on the left so the portrait behind it stays readable. */
+   to a narrow column on the left so the portrait behind it stays readable.
+   The prose scrolls here, unlike the front page, so it has to end clear of the
+   fixed copy at the foot rather than run underneath it. */
 .doc-over {
   max-width: 36rem;
   padding-top: 3rem;
-  padding-bottom: 3rem;
+  padding-bottom: 8rem;
   line-height: 1.8;
   text-shadow: 0 0 12px #000, 0 0 4px #000;
 }
@@ -320,5 +322,13 @@ body {
 @media (min-width: 800px) {
   .doc-over {
     padding-right: 0;
+  }
+}
+
+/* The copy at the foot wraps to three lines on a narrow screen, so the prose
+   needs correspondingly more room below it. */
+@media (max-width: 799px) {
+  .doc-over {
+    padding-bottom: 11rem;
   }
 }
