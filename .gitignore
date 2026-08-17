@@ -1,3 +1,6 @@
-# Source scans. Only the sampled point clouds in assets/*.pcld are served.
+# Source scans. Only the sampled point clouds the pages actually draw are
+# served, so the meshes stay out, and so do clouds kept locally as candidates.
 *.glb
+assets/antinoos.pcld
+assets/rhetorician.pcld
 .DS_Store

@@ -14,7 +14,7 @@
 
   // The default is the sculpture cycle. A page can override the list, and the
   // framing, from the canvas itself:
-  //   <canvas id="bg" data-models="../assets/whoami.pcld" data-yaw="0.15">
+  //   <canvas id="bg" data-models="../assets/marble.pcld" data-yaw="0.2">
   // A single entry simply holds still - there is nothing to morph into.
   var MODELS = [
     'assets/annibal.pcld',
