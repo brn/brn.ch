@@ -324,17 +324,75 @@ body {
   }
 }
 
-/* A line pinned to the foot of the viewport cannot coexist with a page that
-   scrolls - whatever the height, some scroll position puts prose underneath it,
-   and reserving room below the text only fixes the position at the very end of
-   the scroll. The front page never scrolls, so it keeps its fixed line; here
-   the same line joins the flow and ends the page instead. */
+/* A line pinned to the viewport cannot coexist with a page that scrolls: at
+   some scroll position the prose passes underneath it, and reserving room below
+   the text only clears it at the very end of the scroll. So the page itself
+   does not scroll. The viewport is split into a column - prose above, closing
+   line below - and only the prose scrolls, inside its own box, which stops
+   where the line begins. The line is then always on screen, first view
+   included, and nothing ever runs under it.
+
+   The split is flex rather than a reserved height so the line can take however
+   many rows it wraps to - two on a desktop, three on a phone - without a
+   magic number that has to be kept in step with it. */
+.page-fixed {
+  height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.page-fixed .doc-over {
+  flex: 1 1 auto;
+  /* a flex item will not shrink below its content without this, and it has to
+     shrink for the overflow to become a scroll */
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  /* The scrolling box is the whole window, so its bar sits at the window edge
+     rather than partway across the page. The measure moves onto the prose
+     itself, which is what wanted limiting in the first place. */
+  max-width: none;
+  padding-right: clamp(1.25rem, 6vw, 4rem);
+  /* The cut at the foot of the scroll lands mid-line and reads as breakage, so
+     the text dissolves into it instead. A mask fades the text only - a gradient
+     laid over the top would darken the cloud behind it as well. */
+  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 3rem), transparent);
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 3rem), transparent);
+}
+
+.page-fixed .doc-over > * {
+  /* the measure the column had when the box itself was 36rem wide and carried
+     the indent as padding */
+  max-width: 26rem;
+}
+
 .style-flow {
+  flex: 0 0 auto;
   /* relative, not static: it has to stay in the flow but still sit above the
-     canvas, and z-index does nothing to an unpositioned box. */
+     canvas, and z-index does nothing to an unpositioned box. The offset the
+     fixed version uses would otherwise pull it up over the prose. */
   position: relative;
+  bottom: auto;
   /* width:100% plus padding would overflow the viewport, since nothing here
      sets box-sizing globally. */
   box-sizing: border-box;
-  padding: 3rem clamp(1.25rem, 6vw, 4rem) 3rem;
+  padding: 2rem clamp(1.25rem, 6vw, 4rem) 2rem;
+}
+
+/* The prose scrolls in its own box now, so its scrollbar is part of the page.
+   Keep it to a hairline that reads as an edge rather than a control. */
+.page-fixed .doc-over {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.25) transparent;
+}
+
+.page-fixed .doc-over::-webkit-scrollbar {
+  width: 6px;
+}
+
+.page-fixed .doc-over::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.25);
+  border-radius: 3px;
 }
