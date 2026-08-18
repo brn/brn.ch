@@ -33,6 +33,7 @@
   var YAW_CENTRE = Math.PI + 0.30;
   var YAW_SWING = 0.38;         // how far either side of that it sways
   var EXPOSURE = 1.15;          // additive exposure for the busts
+  var MORPH_SPAN = 0.55;        // share of the morph any one point takes to cross
   var SHED_FRACTION = 0.20;     // share of points caught up in the shedding
   var SHED_DIST = 0.62;         // how far a shed point drifts before it is gone
   var FOG_RADIUS = 3.4;         // fog cylinder radius, camera sits inside it
@@ -72,8 +73,8 @@
     'uniform mat3 u_normal;',  // the model rotation, for turning the normals
     'uniform vec3 u_light;',
     'uniform float u_time;',
-    'uniform float u_mix;',    // 0 = fully a, 1 = fully b
-    'uniform float u_burst;',  // outward scatter, peaks mid-morph
+    'uniform float u_mix;',    // 0 = fully a, 1 = fully b; linear, eased below
+    'uniform float u_burst;',  // outward scatter, peaks mid-crossing
     'uniform float u_sizeK;',  // pxHeight / (2 * tan(fov/2))
     'uniform float u_near;',
     'uniform float u_far;',
@@ -84,8 +85,19 @@
     'varying float v_alpha;',
     'void main() {',
     '  float ph = a_nrm.w;',
-    '  vec3 p = mix(a_pos.xyz, b_pos.xyz, u_mix);',
-    '  p += u_burst * vec3(sin(ph * 1.7), cos(ph * 2.3), sin(ph * 3.1));',
+    '',
+    // One progress value shared by every point means every point also *arrives*
+    // on the same frame, and the whole cloud locks still at once. Each point
+    // instead crosses within its own window inside the morph: those that leave
+    // late are still moving when the early ones have settled, so the transition
+    // trails off rather than stopping dead.
+    '  float lead = fract(sin(ph * 17.31) * 3571.7);',
+    '  float t = clamp((u_mix - lead * (1.0 - MORPH_SPAN)) / MORPH_SPAN, 0.0, 1.0);',
+    '  t = t * t * (3.0 - 2.0 * t);',
+    '',
+    '  vec3 p = mix(a_pos.xyz, b_pos.xyz, t);',
+    // the scatter follows the point's own crossing, not the cloud's
+    '  p += u_burst * sin(3.14159 * t) * vec3(sin(ph * 1.7), cos(ph * 2.3), sin(ph * 3.1));',
     '',
     // The bust barely moves as a body - the turn and the dolly carry it. Each
     // grain instead wanders within its own small radius, so the surface
@@ -93,7 +105,7 @@
     '  vec3 q = p * 1.9;',
     '  p.x += u_drift * 0.006 * sin(u_time * 0.31 + q.y);',
     '  p.y += u_drift * 0.005 * cos(u_time * 0.27 + q.x);',
-    '  float wr = mix(a_pos.w, b_pos.w, u_mix);',
+    '  float wr = mix(a_pos.w, b_pos.w, t);',
     '  p += u_drift * wr * vec3(sin(u_time * 0.85 + ph * 1.7),',
     '    cos(u_time * 0.71 + ph * 2.3), sin(u_time * 0.58 + ph * 3.1));',
     '',
@@ -118,13 +130,13 @@
     '',
     '  gl_Position = u_mvp * vec4(p, 1.0);',
     '  float depth = max(gl_Position.w, 0.001);',
-    '  float size = mix(a_ext.y, b_ext.y, u_mix);',
+    '  float size = mix(a_ext.y, b_ext.y, t);',
     '  gl_PointSize = clamp(u_sizeK * PARTICLE_RADIUS * size / depth, 0.8, 8.0);',
     '',
     // Lighting, against the normal as the bust turns. The rim term picks out
     // the silhouette; the facing term dims the far wall of what is really a
     // hollow shell of points, so the two surfaces do not read as one sheet.
-    '  vec3 n = normalize(u_normal * mix(a_nrm.xyz, b_nrm.xyz, u_mix));',
+    '  vec3 n = normalize(u_normal * mix(a_nrm.xyz, b_nrm.xyz, t));',
     '  float lam = max(dot(n, u_light), 0.0);',
     '  float rim = pow(1.0 - abs(n.z), 3.0);',
     '  float facing = 0.55 + 0.45 * smoothstep(-0.25, 0.35, n.z);',
@@ -133,7 +145,7 @@
     '  float tw = mix(1.0, 0.45 + 0.55 * (0.5 + 0.5 * sin(u_time * 0.35 + ph * 2.1)), u_twinkle);',
     // A flat source - a photograph - has no surface to light, so it carries its
     // own tone instead. So does the fog.
-    '  v_bright = mix(lit, mix(a_ext.x, b_ext.x, u_mix), u_unlit) * tw * shedFade;',
+    '  v_bright = mix(lit, mix(a_ext.x, b_ext.x, t), u_unlit) * tw * shedFade;',
     '  float f = clamp((u_far - depth) / (u_far - u_near), 0.0, 1.0);',
     // The fog also fades as it comes at the camera, so a mote passing close by
     // dissolves rather than flaring into a white blob.
@@ -143,7 +155,8 @@
   ].join('\n')
     .replace(/PARTICLE_RADIUS/g, PARTICLE_RADIUS.toFixed(5))
     .replace(/SHED_FRACTION/g, SHED_FRACTION.toFixed(3))
-    .replace(/SHED_DIST/g, SHED_DIST.toFixed(3));
+    .replace(/SHED_DIST/g, SHED_DIST.toFixed(3))
+    .replace(/MORPH_SPAN/g, MORPH_SPAN.toFixed(3));
 
   var FRAG = [
     'precision mediump float;',
@@ -497,12 +510,14 @@
       var index = Math.floor(phase / cycle);
       var next = (index + 1) % buffers.length;
       var local = phase - index * cycle;
+      // Linear here: the easing is per point, in the shader, so that the
+      // points do not share one arrival.
       var m = 0, burst = 0;
       if (buffers.length > 1 && local > HOLD) {
-        m = (local - HOLD) / MORPH;
-        m = m * m * (3 - 2 * m);
-        burst = Math.sin(Math.PI * m) * 0.055;
+        m = Math.min(1, (local - HOLD) / MORPH);
+        burst = 0.055;
       }
+      var blend = m * m * (3 - 2 * m); // for whole-cloud properties
 
       var drift = REDUCED ? 0.25 : 1;
       gl.uniform1f(loc.time, t);
@@ -517,7 +532,7 @@
       gl.uniformMatrix3fv(loc.normal, false, nrm3);
       draw(buffers[index], buffers[next], shared, m, burst,
         mvp, dist - 0.75, dist + 0.75,
-        clouds[index].exposure + (clouds[next].exposure - clouds[index].exposure) * m,
+        clouds[index].exposure + (clouds[next].exposure - clouds[index].exposure) * blend,
         drift, 0, clouds[0].unlit);
     }
 
